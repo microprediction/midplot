@@ -22,9 +22,9 @@ setup(
         "Programming Language :: Python :: 3.11",
         "Programming Language :: Python :: 3.12",
     ],
-    packages=["winning"],
+    packages=["midplot"],
     test_suite='pytest',
-    tests_require=['pytest','pandas','scipy>=1.7.3','randomcov'],
+    tests_require=['pytest'],
     include_package_data=True,
     install_requires=["numpy","pytest"],
     entry_points={
