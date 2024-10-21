@@ -1,13 +1,23 @@
 import plotly.graph_objects as go
+from midone import HORIZON
 from plotly.subplots import make_subplots
 from IPython.display import display
 from ipywidgets import IntSlider, VBox
 from typing import List, Optional, Dict
 
+from pydantic import BaseModel
+
 from midplot.streams import Prediction, StreamPoint
 
+class DataSelection(BaseModel):
+    stream_id: int = None
+    data: List[float]
+    original_start_index : int
+    original_end_index : int
+
 class TimeSeriesVisualizer:
-    def __init__(self, max_select: int = 100):
+    def __init__(self, max_select: int = 100, horizon: int = HORIZON):
+        self.horizon = horizon
         self.max_select = max_select
 
         self.times: List[int] = []
@@ -43,7 +53,7 @@ class TimeSeriesVisualizer:
             paper_bgcolor='#2b2b2b',
             xaxis_title='Time',
             yaxis_title='Value',
-            height=600,
+            height=300,
             hovermode='x unified'
         )
 
@@ -118,8 +128,8 @@ class TimeSeriesVisualizer:
             self.display()
 
     @property
-    def selected_data(self):
-        return list(zip(self.selected_times, self.selected_values))
+    def selection(self):
+        return DataSelection(data=self.selected_values, original_start_index=self.selected_times[0], original_end_index=self.selected_times[-1])
 
     def clear(self):
         self.times.clear()
