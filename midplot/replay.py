@@ -1,8 +1,11 @@
+import time
+
 from midone import EPSILON, HORIZON
 from midone.accounting.pnl import Pnl
 
 from crunch.container import StreamMessage
 from pydantic import BaseModel
+from tqdm import tqdm
 
 from midplot.accounting import AccountingDataVisualizer
 from midplot.decision import DecisionManager
@@ -12,20 +15,6 @@ from midplot.visualization import TimeSeriesVisualizer, DataSelection
 from typing import Union, Iterable, List, Dict, TypeVar, Any, Optional, Callable, Iterator
 import numpy as np
 
-
-import time
-from functools import wraps
-
-def timeit(func):
-    @wraps(func)
-    def wrapper(*args, **kwargs):
-        start_time = time.time()
-        result = func(*args, **kwargs)
-        end_time = time.time()
-        elapsed_time = end_time - start_time
-        print(f"Time elapsed for {func.__name__}: {elapsed_time:.4f} seconds")
-        return result
-    return wrapper
 
 class NoOpSink:
     def process(self, *args, **kwargs):
@@ -37,7 +26,8 @@ class NoOpSink:
 
 def infer_nothing(
         stream: Iterator[dict],
-        horizon: int = HORIZON,
+        hyper_parameters = None,
+        with_hyper_parameters_load = False
 ):
     yield  # Leave this here.
 
@@ -48,6 +38,13 @@ class Scenario(BaseModel):
     selection: DataSelection = None
     decision: float = 0.0
 
+
+class ScenarioResultCheck(BaseModel):
+    success: List[Scenario] = []
+    failed: List[Scenario] = []
+    def __str__(self):
+        return f"Success: {len(self.success)}, Failed: {len(self.failed)}"
+
 class ReplayResults:
     def __init__(self):
         self.visualizers: Dict[int, TimeSeriesVisualizer] = {}
@@ -56,6 +53,7 @@ class ReplayResults:
         self.scores = {}
         self.total_score = 0.0
         self.scenario_idx = None
+        self.elapsed = 0.
 
     def get_selection(self):
         for stream_id in self.visualizers:
@@ -72,19 +70,29 @@ class ReplayResults:
             return selection.data
         return []
 
-    def check_scenarios(self, scenarios: List[Scenario]) -> bool:
+    def check_scenarios(self, scenarios: List[Scenario], threshold: float = None) -> (bool, ScenarioResultCheck):
         self.scenario_idx = 0
+        num_failed = 0
+        result = ScenarioResultCheck()
         for scenario in scenarios:
             if scenario.selection is None:
-                return False
+                raise ValueError("Selection is None")
             decision_manager = self.decision_managers[self.scenario_idx]
             self.scenario_idx += 1
             if decision_manager is None:
-                return False
+                raise ValueError("Decision manager is None")
             check = decision_manager.match(scenario.decision)
+            if check:
+                result.success.append(scenario)
             if not check:
-                return False
-        return True
+                num_failed += 1
+                result.failed.append(scenario)
+                if threshold is None:
+                    return False, result
+                else:
+                    if num_failed > (1.- threshold)*len(scenarios):
+                        return False, result
+        return True, result
 
     def save_selected(self, expected_decision: float = 0.):
         selection = self.get_selection()
@@ -131,13 +139,15 @@ T = TypeVar('T', bound=Dict[str, Any])
 def replay(streams: Union[Iterable[Iterable[T]], Iterable[T], Iterable[float]],
            horizon: int = HORIZON,
            epsilon: float = EPSILON,
-           only_stream_ids: Optional[List[int]] = None,
+           only_stream_ids: Optional[Union[int, Iterable[int]]] = None,
            start_index: int = 0,
            stop_index: int = None,
-           update_frequency: int = 50,
+           update_frequency: int = 100,
            with_visualization: bool = False,
            with_accounting_visualizer: bool = False,
-           dry: bool = False) -> ReplayResults:
+           dry: bool = False,
+           hyper_parameters: Any = None,
+           with_hyper_parameters_load: bool = False) -> ReplayResults:
     """
     Replay a set of streams, visualize the replay_result and return the total profit
     :param epsilon:
@@ -150,16 +160,22 @@ def replay(streams: Union[Iterable[Iterable[T]], Iterable[T], Iterable[float]],
     :param with_visualization:
     :param with_accounting_visualizer:
     :param dry:
+    :param hyper_parameters:
+    :param with_hyper_parameters_load:
     :return: ReplayResults object containing visualizers and total score
-
     """
     try:
         from __main__ import infer
+        if infer is None:
+            print("Please define the 'infer' function in the main module: for debugging, showing no attacks.")
+            infer = infer_nothing
     except ImportError:
         print("Please define the 'infer' function in the main module: for debugging, showing no attacks.")
         infer = infer_nothing
 
     try:
+        # Record the start time
+        start_time = time.time()
         ready_streams = process_streams(streams)
         if not dry:
             global _replay_result
@@ -177,6 +193,7 @@ def replay(streams: Union[Iterable[Iterable[T]], Iterable[T], Iterable[float]],
             only_stream_ids = [only_stream_ids]
 
         for stream_id, stream in enumerate(ready_streams):
+        # for stream_id, stream in enumerate(tqdm(ready_streams, desc="Processing streams")):
             if only_stream_ids and stream_id not in only_stream_ids:
                 continue
             decision_manager = DecisionManager()
@@ -189,7 +206,7 @@ def replay(streams: Union[Iterable[Iterable[T]], Iterable[T], Iterable[float]],
             else:
                 viz = NoOpSink()
 
-            prediction_generator = infer(stream, horizon)
+            prediction_generator = infer(stream, hyper_parameters=hyper_parameters, with_hyper_parameters_load=with_hyper_parameters_load)
             next(prediction_generator)
 
             for idx, data_point in enumerate(stream):
@@ -213,12 +230,21 @@ def replay(streams: Union[Iterable[Iterable[T]], Iterable[T], Iterable[float]],
             replay_result.accounting_visualizer.display()
             replay_result.scores[stream_id] = pnl.summary()['total_profit']
             replay_result.total_score += pnl.summary()['total_profit']
+        # Record the end time
+        end_time = time.time()
+
+        # Calculate the elapsed time
+        elapsed_time = end_time - start_time
+        replay_result.elapsed = elapsed_time
         return replay_result
 
     except KeyboardInterrupt:
         print("Interrupted")
     except Exception as e:
         print("Exception", e)
+        # Print stack
+        import traceback
+        traceback.print_exc()
 
 
 # @timeit
