@@ -166,3 +166,4 @@ cython_debug/
 algos
 pyproject.toml
 poetry.lock
+*.json
