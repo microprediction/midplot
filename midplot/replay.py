@@ -198,7 +198,7 @@ def replay(streams: Union[Iterable[Iterable[T]], Iterable[T], Iterable[float]],
                 continue
             decision_manager = DecisionManager()
 
-            pnl = Pnl()
+            pnl = Pnl(epsilon=epsilon)
 
             if with_visualization:
                 viz = TimeSeriesVisualizer(horizon=horizon)

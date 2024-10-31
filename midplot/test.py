@@ -14,6 +14,7 @@ def create_mapping(predictions: pd.DataFrame) -> dict:
         mapping[num_points] = stream_id
     return mapping
 
+
 def create_matching_dataframe(streams, mapping, horizon):
     data = []
     accumulate = []
@@ -63,8 +64,9 @@ def calculate_pnl(groups, epsilon) -> float:
     total_pnl = 0
 
     for stream, df in groups:
-        df['pnl'] = (df['prediction'] ) * (df['shifted_diff'] - epsilon)
-        group_pnl = df['pnl'].sum()
+        df['pnl'] = (df['prediction']) * (df['shifted_diff'])
+        non_zero_predictions = (df['prediction'] != 0).sum()
+        group_pnl = df['pnl'].sum()  - (epsilon * non_zero_predictions)
         print(f"Stream {stream}: PnL = {group_pnl}")
         total_pnl += group_pnl
 
