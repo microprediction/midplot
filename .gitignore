@@ -167,3 +167,5 @@ algos
 pyproject.toml
 poetry.lock
 *.json
+
+quickstarter_saved.ipynb

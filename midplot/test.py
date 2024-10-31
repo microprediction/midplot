@@ -1,5 +1,7 @@
 import pandas as pd
 import numpy as np
+from pydantic import BaseModel
+
 
 def process(predictions: pd.DataFrame, x_test, horizon):
     mapping = create_mapping(predictions)
@@ -60,18 +62,23 @@ def extract_groups(predictions, tests, horizon):
         out.append((stream, group))
     return out
 
-def calculate_pnl(groups, epsilon) -> float:
-    total_pnl = 0
 
+class PnlVerification(BaseModel):
+    total_score: float = 0.
+    scores: dict = {}
+
+
+def calculate_pnl(groups, epsilon) -> PnlVerification:
+    res = PnlVerification()
     for stream, df in groups:
         df['pnl'] = (df['prediction']) * (df['shifted_diff'])
         non_zero_predictions = (df['prediction'] != 0).sum()
         group_pnl = df['pnl'].sum()  - (epsilon * non_zero_predictions)
-        print(f"Stream {stream}: PnL = {group_pnl}")
-        total_pnl += group_pnl
+        res.scores[stream] = group_pnl
+        res.total_score += group_pnl
+    return res
 
-    return total_pnl
 
-def pnl(predictions: pd.DataFrame, x_test, horizon, epsilon) -> float:
+def pnl(predictions: pd.DataFrame, x_test, horizon, epsilon) -> PnlVerification:
     groups = process(predictions, x_test, horizon)
     return calculate_pnl(groups, epsilon)
